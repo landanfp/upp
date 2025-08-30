@@ -23,7 +23,8 @@ class Config(object):
     # Banned Unwanted Members..
     BANNED_USERS = set(int(x) for x in os.environ.get("BANNED_USERS", "").split())
     # the download location, where the HTTP Server runs
-    DOWNLOAD_LOCATION = "./DOWNLOADS"
+    #DOWNLOAD_LOCATION = "./DOWNLOADS"
+    DOWNLOAD_LOCATION = "/app/downloads"
     # Update channel for Force Subscribe
     UPDATE_CHANNEL = os.environ.get("UPDATE_CHANNEL", "")
     # Telegram maximum file upload size
