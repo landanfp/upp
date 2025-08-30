@@ -15,11 +15,11 @@ RUN curl -sL https://deb.nodesource.com/setup_20.x | bash - && \
 RUN python3 -m venv /venv
 ENV PATH="/venv/bin:$PATH"
 
-# نصب pip و Pyrogram نسخه مشخص
+# بروزرسانی pip و نصب Pyrogram 1.4.16 قبل از بقیه پکیج‌ها
 RUN pip install --upgrade pip
 RUN pip install pyrogram==1.4.16
 
-# نصب بقیه پکیج‌ها بدون آپدیت Pyrogram
+# نصب باقی پکیج‌ها بدون آپدیت Pyrogram
 COPY requirements.txt /requirements.txt
 RUN pip install --no-deps -r /requirements.txt
 
