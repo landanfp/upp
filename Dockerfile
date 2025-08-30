@@ -17,7 +17,7 @@ ENV PATH="/venv/bin:$PATH"
 
 # بروزرسانی pip و نصب Pyrogram 1.4.16 قبل از بقیه پکیج‌ها
 RUN pip install --upgrade pip
-RUN pip install pyrogram==1.4.16
+RUN pip install pyrogram==2.0.106 
 
 # نصب باقی پکیج‌ها بدون آپدیت Pyrogram
 COPY requirements.txt /requirements.txt
