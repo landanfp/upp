@@ -101,7 +101,7 @@ async def echo(bot, update):
         "-j",
         url,
         "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-        "--verbose"  # اضافه‌شده: لاگ دقیق‌تر
+        "--verbose"
     ]
     if Config.HTTP_PROXY:
         command_to_exec.extend(["--proxy", Config.HTTP_PROXY])
@@ -109,8 +109,8 @@ async def echo(bot, update):
         command_to_exec.extend(["--username", youtube_dl_username])
     if youtube_dl_password:
         command_to_exec.extend(["--password", youtube_dl_password])
-    if "instagram.com" in url or "rumble.com" in url:
-        cookies_path = "/app/cookies.txt"  # تنظیم مسیر کوکی‌ها
+    if "instagram.com" in url or "rumble.com" in url or "ok.ru" in url or "xhamster.com" in url:
+        cookies_path = "/app/cookies.txt"
         if not os.path.exists(cookies_path):
             logger.error(f"Cookies file not found: {cookies_path}")
             await update.reply_text(
@@ -138,7 +138,21 @@ async def echo(bot, update):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        stdout, stderr = await process.communicate(timeout=60)
+        # استفاده از asyncio.wait_for برای اعمال محدودیت زمانی
+        try:
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=60.0)
+        except asyncio.TimeoutError:
+            logger.error("yt-dlp process timed out")
+            process.kill()
+            await chk.delete()
+            await bot.send_message(
+                chat_id=update.chat.id,
+                text="❌ زمان پردازش لینک به اتمام رسید! لطفاً دوباره تلاش کنید یا لینک دیگری امتحان کنید.",
+                reply_to_message_id=update.id,
+                parse_mode=ParseMode.HTML
+            )
+            return
+
         e_response = stderr.decode().strip()
         t_response = stdout.decode().strip()
 
@@ -167,6 +181,13 @@ async def echo(bot, update):
                 await bot.send_message(
                     chat_id=update.chat.id,
                     text="❌ خطا در دانلود اطلاعات ویدئو. لطفاً مطمئن شوید که لینک معتبر است یا فایل کوکی‌ها را بررسی کنید.",
+                    reply_to_message_id=update.id,
+                    parse_mode=ParseMode.HTML
+                )
+            elif "ERROR: unsupported URL" in e_response:
+                await bot.send_message(
+                    chat_id=update.chat.id,
+                    text="❌ لینک پشتیبانی نمی‌شود. لطفاً لینک دیگری امتحان کنید یا فایل کوکی‌ها را بررسی کنید.",
                     reply_to_message_id=update.id,
                     parse_mode=ParseMode.HTML
                 )
@@ -276,15 +297,6 @@ async def echo(bot, update):
             reply_to_message_id=update.id
         )
 
-    except asyncio.TimeoutError:
-        logger.error("yt-dlp timed out")
-        await chk.delete()
-        await bot.send_message(
-            chat_id=update.chat.id,
-            text="❌ زمان پردازش لینک به اتمام رسید! لطفاً دوباره تلاش کنید یا لینک دیگری امتحان کنید.",
-            reply_to_message_id=update.id,
-            parse_mode=ParseMode.HTML
-        )
     except FileNotFoundError as e:
         logger.error(f"FileNotFoundError: {e}")
         await chk.delete()
