@@ -49,7 +49,7 @@ async def echo(bot, update):
             logger.error(f"Error forwarding to log channel: {error}")
 
     if not update.from_user:
-        return await update.reply_text("❌ نمی‌تونم شما رو شناسایی کنم!")
+        return await update.reply_text("❌ نمی‌تونم شما رو شناسایی کنم!", parse_mode=ParseMode.HTML)
 
     await add_user_to_database(bot, update)
 
@@ -93,14 +93,15 @@ async def echo(bot, update):
     if not url:
         return await update.reply_text("❌ لینک معتبر نیست!", parse_mode=ParseMode.HTML)
 
-    # آماده‌سازی دستور yt-dlp با پشتیبانی از Rumble و Instagram
+    # آماده‌سازی دستور yt-dlp
     command_to_exec = [
         "yt-dlp",
         "--no-warnings",
         "--youtube-skip-dash-manifest",
         "-j",
         url,
-        "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        "--verbose"  # اضافه‌شده: لاگ دقیق‌تر
     ]
     if Config.HTTP_PROXY:
         command_to_exec.extend(["--proxy", Config.HTTP_PROXY])
@@ -109,7 +110,16 @@ async def echo(bot, update):
     if youtube_dl_password:
         command_to_exec.extend(["--password", youtube_dl_password])
     if "instagram.com" in url or "rumble.com" in url:
-        command_to_exec.extend(["--cookies", "/app/cookies.txt"])  # تنظیم مسیر کوکی‌ها
+        cookies_path = "/app/cookies.txt"  # تنظیم مسیر کوکی‌ها
+        if not os.path.exists(cookies_path):
+            logger.error(f"Cookies file not found: {cookies_path}")
+            await update.reply_text(
+                "❌ فایل کوکی‌ها یافت نشد! لطفاً فایل cookies.txt را تنظیم کنید.",
+                parse_mode=ParseMode.HTML,
+                reply_to_message_id=update.id
+            )
+            return
+        command_to_exec.extend(["--cookies", cookies_path])
 
     logger.info(f"Executing command: {command_to_exec}")
 
@@ -132,6 +142,9 @@ async def echo(bot, update):
         e_response = stderr.decode().strip()
         t_response = stdout.decode().strip()
 
+        logger.info(f"yt-dlp stdout: {t_response}")
+        logger.info(f"yt-dlp stderr: {e_response}")
+
         # بررسی خطاهای yt-dlp
         if e_response:
             logger.error(f"yt-dlp error: {e_response}")
@@ -153,7 +166,7 @@ async def echo(bot, update):
             elif "ERROR: unable to download video data" in e_response:
                 await bot.send_message(
                     chat_id=update.chat.id,
-                    text="❌ خطا در دانلود اطلاعات ویدئو. لطفاً مطمئن شوید که لینک معتبر است یا از کوکی‌های مناسب استفاده کنید.",
+                    text="❌ خطا در دانلود اطلاعات ویدئو. لطفاً مطمئن شوید که لینک معتبر است یا فایل کوکی‌ها را بررسی کنید.",
                     reply_to_message_id=update.id,
                     parse_mode=ParseMode.HTML
                 )
@@ -184,7 +197,7 @@ async def echo(bot, update):
             await chk.delete()
             await bot.send_message(
                 chat_id=update.chat.id,
-                text="❌ خطا در تجزیه اطلاعات ویدئو! لطفاً لینک دیگری امتحان کنید.",
+                text=f"❌ خطا در تجزیه اطلاعات ویدئو: {str(e)[:100]}...",
                 reply_to_message_id=update.id,
                 parse_mode=ParseMode.HTML
             )
@@ -193,9 +206,20 @@ async def echo(bot, update):
         # ذخیره JSON
         randem = random_char(5)
         save_ytdl_json_path = os.path.join(Config.DOWNLOAD_LOCATION, f"{update.from_user.id}_{randem}.json")
-        os.makedirs(Config.DOWNLOAD_LOCATION, exist_ok=True)
-        with open(save_ytdl_json_path, "w", encoding="utf8") as outfile:
-            json.dump(response_json, outfile, ensure_ascii=False)
+        try:
+            os.makedirs(Config.DOWNLOAD_LOCATION, exist_ok=True)
+            with open(save_ytdl_json_path, "w", encoding="utf8") as outfile:
+                json.dump(response_json, outfile, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"Error saving JSON file: {e}")
+            await chk.delete()
+            await bot.send_message(
+                chat_id=update.chat.id,
+                text=f"❌ خطا در ذخیره فایل JSON: {str(e)[:100]}...",
+                reply_to_message_id=update.id,
+                parse_mode=ParseMode.HTML
+            )
+            return
 
         # ایجاد دکمه‌های اینلاین
         inline_keyboard = []
@@ -261,12 +285,21 @@ async def echo(bot, update):
             reply_to_message_id=update.id,
             parse_mode=ParseMode.HTML
         )
-    except Exception as e:
-        logger.error(f"Error in processing: {e}")
+    except FileNotFoundError as e:
+        logger.error(f"FileNotFoundError: {e}")
         await chk.delete()
         await bot.send_message(
             chat_id=update.chat.id,
-            text="⚠️ خطایی رخ داد. لطفاً لینک را بررسی کنید یا دوباره تلاش کنید.",
+            text=f"❌ خطای دسترسی به فایل: {str(e)[:100]}...",
+            reply_to_message_id=update.id,
+            parse_mode=ParseMode.HTML
+        )
+    except Exception as e:
+        logger.error(f"Error in processing: {str(e)}")
+        await chk.delete()
+        await bot.send_message(
+            chat_id=update.chat.id,
+            text=f"⚠️ خطایی رخ داد: {str(e)[:100]}... لطفاً لینک را بررسی کنید یا دوباره تلاش کنید.",
             reply_to_message_id=update.id,
             parse_mode=ParseMode.HTML
         )
