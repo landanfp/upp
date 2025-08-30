@@ -3,7 +3,7 @@ beautifulsoup4
 hachoir
 numpy
 Pillow
-pyrogram==2.0.106 
+pyrogram
 requests
 tgcrypto
 git+https://github.com/dlcvietnam/yt-dlp#egg=yt-dlp
