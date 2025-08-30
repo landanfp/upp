@@ -109,17 +109,6 @@ async def echo(bot, update):
         command_to_exec.extend(["--username", youtube_dl_username])
     if youtube_dl_password:
         command_to_exec.extend(["--password", youtube_dl_password])
-    if "instagram.com" in url or "rumble.com" in url or "ok.ru" in url or "xhamster.com" in url:
-        cookies_path = "/app/cookies.txt"
-        if not os.path.exists(cookies_path):
-            logger.error(f"Cookies file not found: {cookies_path}")
-            await update.reply_text(
-                "❌ فایل کوکی‌ها یافت نشد! لطفاً فایل cookies.txt را تنظیم کنید.",
-                parse_mode=ParseMode.HTML,
-                reply_to_message_id=update.id
-            )
-            return
-        command_to_exec.extend(["--cookies", cookies_path])
 
     logger.info(f"Executing command: {command_to_exec}")
 
@@ -138,7 +127,6 @@ async def echo(bot, update):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        # استفاده از asyncio.wait_for برای اعمال محدودیت زمانی
         try:
             stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=60.0)
         except asyncio.TimeoutError:
@@ -180,14 +168,14 @@ async def echo(bot, update):
             elif "ERROR: unable to download video data" in e_response:
                 await bot.send_message(
                     chat_id=update.chat.id,
-                    text="❌ خطا در دانلود اطلاعات ویدئو. لطفاً مطمئن شوید که لینک معتبر است یا فایل کوکی‌ها را بررسی کنید.",
+                    text="❌ خطا در دانلود اطلاعات ویدئو. این لینک ممکن است نیاز به احراز هویت یا کوکی داشته باشد.",
                     reply_to_message_id=update.id,
                     parse_mode=ParseMode.HTML
                 )
             elif "ERROR: unsupported URL" in e_response:
                 await bot.send_message(
                     chat_id=update.chat.id,
-                    text="❌ لینک پشتیبانی نمی‌شود. لطفاً لینک دیگری امتحان کنید یا فایل کوکی‌ها را بررسی کنید.",
+                    text="❌ لینک پشتیبانی نمی‌شود. لطفاً لینک دیگری امتحان کنید.",
                     reply_to_message_id=update.id,
                     parse_mode=ParseMode.HTML
                 )
