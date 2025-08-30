@@ -11,13 +11,17 @@ RUN curl -sL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y nodejs && \
     npm i -g npm
 
-# ساخت virtualenv برای پایتون (رفع خطای externally-managed-environment)
+# ساخت virtualenv برای پایتون
 RUN python3 -m venv /venv
 ENV PATH="/venv/bin:$PATH"
 
-# نصب پکیج‌های پایتون
+# نصب pip و Pyrogram نسخه مشخص
+RUN pip install --upgrade pip
+RUN pip install pyrogram==1.4.16
+
+# نصب بقیه پکیج‌ها بدون آپدیت Pyrogram
 COPY requirements.txt /requirements.txt
-RUN pip install -U pip && pip install -r /requirements.txt
+RUN pip install --no-deps -r /requirements.txt
 
 # تنظیم دایرکتوری پروژه
 WORKDIR /Uploader-Bot-V2
