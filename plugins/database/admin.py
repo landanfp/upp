@@ -11,7 +11,7 @@ from functions.display_progress import humanbytes
 from plugins.database.bcast import broadcast_handler
 from plugins.settings.settings import OpenSettings
 
-@Client.on_message(filters.command("status") & filters.user(Config.OWNER_ID) & ~filters.edited)
+@Client.on_message(filters.command("status") & filters.user(Config.OWNER_ID))
 async def status_handler(_, m: Message):
     total, used, free = shutil.disk_usage(".")
     total = humanbytes(total)
@@ -33,7 +33,7 @@ async def status_handler(_, m: Message):
     )
 
 
-@Client.on_message(filters.command("broadcast") & filters.user(Config.OWNER_ID) & filters.reply & ~filters.edited)
+@Client.on_message(filters.command("broadcast") & filters.user(Config.OWNER_ID) & filters.reply)
 async def broadcast_in(_, m: Message):
     await broadcast_handler(m)
 
