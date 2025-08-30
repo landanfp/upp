@@ -7,6 +7,7 @@ import asyncio
 import json
 import os
 from pyrogram import Client, filters
+from pyrogram.enums import ParseMode
 from pyrogram.errors import UserNotParticipant, FloodWait
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from functions.forcesub import handle_force_subscribe
@@ -41,7 +42,8 @@ async def echo(bot, update):
             await log_message.reply_text(
                 text=log_info,
                 disable_web_page_preview=True,
-                quote=True
+                quote=True,
+                parse_mode=ParseMode.HTML
             )
         except Exception as error:
             logger.error(f"Error forwarding to log channel: {error}")
@@ -89,16 +91,25 @@ async def echo(bot, update):
                 url = url[o:o + l]
 
     if not url:
-        return await update.reply_text("❌ لینک معتبر نیست!")
+        return await update.reply_text("❌ لینک معتبر نیست!", parse_mode=ParseMode.HTML)
 
-    # آماده‌سازی دستور yt-dlp
-    command_to_exec = ["yt-dlp", "--no-warnings", "--youtube-skip-dash-manifest", "-j", url]
+    # آماده‌سازی دستور yt-dlp با پشتیبانی از Rumble و Instagram
+    command_to_exec = [
+        "yt-dlp",
+        "--no-warnings",
+        "--youtube-skip-dash-manifest",
+        "-j",
+        url,
+        "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    ]
     if Config.HTTP_PROXY:
         command_to_exec.extend(["--proxy", Config.HTTP_PROXY])
     if youtube_dl_username:
         command_to_exec.extend(["--username", youtube_dl_username])
     if youtube_dl_password:
         command_to_exec.extend(["--password", youtube_dl_password])
+    if "instagram.com" in url or "rumble.com" in url:
+        command_to_exec.extend(["--cookies", "/app/cookies.txt"])  # تنظیم مسیر کوکی‌ها
 
     logger.info(f"Executing command: {command_to_exec}")
 
@@ -107,7 +118,8 @@ async def echo(bot, update):
         chat_id=update.chat.id,
         text="**🔄 در حال بررسی لینک ... ⚡**",
         disable_web_page_preview=True,
-        reply_to_message_id=update.id  # تغییر: message_id به id
+        reply_to_message_id=update.id,
+        parse_mode=ParseMode.HTML
     )
 
     try:
@@ -116,35 +128,55 @@ async def echo(bot, update):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        stdout, stderr = await process.communicate()
+        stdout, stderr = await process.communicate(timeout=60)
         e_response = stderr.decode().strip()
         t_response = stdout.decode().strip()
 
-        if e_response and "nonnumeric port" not in e_response:
-            error_message = e_response.replace(
-                "please report this issue on https://yt-dl.org/bug . Make sure you are using the latest version; see  https://yt-dl.org/update  on how to update. Be sure to call youtube-dl with the --verbose flag and include its complete output.", ""
-            )
-            if "This video is only available for registered users." in error_message:
-                error_message += Translation.SET_CUSTOM_USERNAME_PASSWORD
+        # بررسی خطاهای yt-dlp
+        if e_response:
+            logger.error(f"yt-dlp error: {e_response}")
             await chk.delete()
-            await bot.send_message(
-                chat_id=update.chat.id,
-                text=Translation.NO_VOID_FORMAT_FOUND.format(error_message),
-                reply_to_message_id=update.id,  # تغییر: message_id به id
-                parse_mode="html",
-                disable_web_page_preview=True
-            )
+            if "nonnumeric port" in e_response:
+                await bot.send_message(
+                    chat_id=update.chat.id,
+                    text="❌ خطای سرور در پردازش لینک. لطفاً لینک دیگری امتحان کنید.",
+                    reply_to_message_id=update.id,
+                    parse_mode=ParseMode.HTML
+                )
+            elif "This video is only available for registered users" in e_response:
+                await bot.send_message(
+                    chat_id=update.chat.id,
+                    text=Translation.NO_VOID_FORMAT_FOUND.format("این ویدئو نیاز به نام کاربری و رمز عبور دارد.") + Translation.SET_CUSTOM_USERNAME_PASSWORD,
+                    reply_to_message_id=update.id,
+                    parse_mode=ParseMode.HTML
+                )
+            elif "ERROR: unable to download video data" in e_response:
+                await bot.send_message(
+                    chat_id=update.chat.id,
+                    text="❌ خطا در دانلود اطلاعات ویدئو. لطفاً مطمئن شوید که لینک معتبر است یا از کوکی‌های مناسب استفاده کنید.",
+                    reply_to_message_id=update.id,
+                    parse_mode=ParseMode.HTML
+                )
+            else:
+                await bot.send_message(
+                    chat_id=update.chat.id,
+                    text=f"❌ خطا در پردازش لینک: {e_response[:100]}...",
+                    reply_to_message_id=update.id,
+                    parse_mode=ParseMode.HTML
+                )
             return
 
         if not t_response:
             await chk.delete()
             await bot.send_message(
                 chat_id=update.chat.id,
-                text="❌ خطایی در دریافت اطلاعات ویدئو رخ داد!",
-                reply_to_message_id=update.id  # تغییر: message_id به id
+                text="❌ هیچ اطلاعاتی از ویدئو دریافت نشد! لطفاً لینک را بررسی کنید.",
+                reply_to_message_id=update.id,
+                parse_mode=ParseMode.HTML
             )
             return
 
+        # تجزیه JSON
         try:
             response_json = json.loads(t_response.split("\n")[0] if "\n" in t_response else t_response)
         except json.JSONDecodeError as e:
@@ -152,8 +184,9 @@ async def echo(bot, update):
             await chk.delete()
             await bot.send_message(
                 chat_id=update.chat.id,
-                text="❌ خطا در پردازش اطلاعات ویدئو!",
-                reply_to_message_id=update.id  # تغییر: message_id به id
+                text="❌ خطا در تجزیه اطلاعات ویدئو! لطفاً لینک دیگری امتحان کنید.",
+                reply_to_message_id=update.id,
+                parse_mode=ParseMode.HTML
             )
             return
 
@@ -215,15 +248,25 @@ async def echo(bot, update):
             chat_id=update.chat.id,
             text=Translation.FORMAT_SELECTION.format(""),
             reply_markup=InlineKeyboardMarkup(inline_keyboard),
-            parse_mode="html",
-            reply_to_message_id=update.id  # تغییر: message_id به id
+            parse_mode=ParseMode.HTML,
+            reply_to_message_id=update.id
         )
 
+    except asyncio.TimeoutError:
+        logger.error("yt-dlp timed out")
+        await chk.delete()
+        await bot.send_message(
+            chat_id=update.chat.id,
+            text="❌ زمان پردازش لینک به اتمام رسید! لطفاً دوباره تلاش کنید یا لینک دیگری امتحان کنید.",
+            reply_to_message_id=update.id,
+            parse_mode=ParseMode.HTML
+        )
     except Exception as e:
         logger.error(f"Error in processing: {e}")
         await chk.delete()
         await bot.send_message(
             chat_id=update.chat.id,
-            text="⚠️ خطایی رخ داد. لطفاً دوباره تلاش کنید.",
-            reply_to_message_id=update.id  # تغییر: message_id به id
+            text="⚠️ خطایی رخ داد. لطفاً لینک را بررسی کنید یا دوباره تلاش کنید.",
+            reply_to_message_id=update.id,
+            parse_mode=ParseMode.HTML
         )
