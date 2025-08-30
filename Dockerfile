@@ -1,33 +1,31 @@
-FROM debian:latest
+FROM python:3.10-slim
 
-ENV DEBIAN_FRONTEND=noninteractive
+WORKDIR /app
 
-# نصب پکیج‌ها
-RUN apt update && apt upgrade -y && \
-    apt install -y git curl python3-pip python3-venv ffmpeg
+# نصب ابزارهای سیستمی موردنیاز برای ساخت پکیج‌ها
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    g++ \
+    libssl-dev \
+    libffi-dev \
+    libjpeg-dev \
+    zlib1g-dev \
+    libpq-dev \
+    git \
+ && rm -rf /var/lib/apt/lists/*
 
-# نصب NodeJS (نسخه LTS جدید)
-RUN curl -sL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get install -y nodejs && \
-    npm i -g npm
+# کپی requirements.txt
+COPY requirements.txt .
 
-# ساخت virtualenv برای پایتون
-RUN python3 -m venv /venv
-ENV PATH="/venv/bin:$PATH"
+# نصب کتابخانه‌های پایتون
+RUN pip install --upgrade pip \
+ && pip install --no-cache-dir -r requirements.txt
 
-# بروزرسانی pip و نصب Pyrogram 1.4.16 قبل از بقیه پکیج‌ها
-RUN pip install --upgrade pip
-RUN pip install pyrogram==2.0.106 
+# کپی کل پروژه
+COPY . .
 
-# نصب باقی پکیج‌ها بدون آپدیت Pyrogram
-COPY requirements.txt /requirements.txt
-RUN pip install --no-deps -r /requirements.txt
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
-# تنظیم دایرکتوری پروژه
-WORKDIR /Uploader-Bot-V2
-
-# کپی اسکریپت شروع
-COPY start.sh /start.sh
-RUN chmod +x /start.sh
-
-CMD ["/bin/bash", "/start.sh"]
+CMD ["python", "bot.py"]
