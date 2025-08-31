@@ -97,11 +97,9 @@ async def echo(bot, update):
     command_to_exec = [
         "yt-dlp",
         "--no-warnings",
-        "--youtube-skip-dash-manifest",
-        "-j",
+        "-j",  # فقط JSON خروجی بگیر
         url,
         "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-        "--verbose"
     ]
     if Config.HTTP_PROXY:
         command_to_exec.extend(["--proxy", Config.HTTP_PROXY])
@@ -110,7 +108,7 @@ async def echo(bot, update):
     if youtube_dl_password:
         command_to_exec.extend(["--password", youtube_dl_password])
 
-    logger.info(f"Executing command: {command_to_exec}")
+    logger.info(f"Executing command: {' '.join(command_to_exec)}")
 
     # ارسال پیام در حال پردازش
     chk = await bot.send_message(
@@ -127,65 +125,32 @@ async def echo(bot, update):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        try:
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=60.0)
-        except asyncio.TimeoutError:
-            logger.error("yt-dlp process timed out")
-            process.kill()
-            await chk.delete()
-            await bot.send_message(
-                chat_id=update.chat.id,
-                text="❌ زمان پردازش لینک به اتمام رسید! لطفاً دوباره تلاش کنید یا لینک دیگری امتحان کنید.",
-                reply_to_message_id=update.id,
-                parse_mode=ParseMode.HTML
-            )
-            return
-
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=120.0)  # افزایش تایم‌اوت
         e_response = stderr.decode().strip()
         t_response = stdout.decode().strip()
 
-        logger.info(f"yt-dlp stdout: {t_response}")
-        logger.info(f"yt-dlp stderr: {e_response}")
+        logger.info(f"Raw yt-dlp stdout: {t_response}")
+        logger.info(f"Raw yt-dlp stderr: {e_response}")
 
         # بررسی خطاهای yt-dlp
         if e_response:
             logger.error(f"yt-dlp error: {e_response}")
             await chk.delete()
+            error_message = e_response[:200]
             if "nonnumeric port" in e_response:
-                await bot.send_message(
-                    chat_id=update.chat.id,
-                    text="❌ خطای سرور در پردازش لینک. لطفاً لینک دیگری امتحان کنید.",
-                    reply_to_message_id=update.id,
-                    parse_mode=ParseMode.HTML
-                )
+                error_message = "❌ خطای پراکسی (پورت غیرعددی). لطفاً تنظیمات پراکسی را بررسی کنید."
             elif "This video is only available for registered users" in e_response:
-                await bot.send_message(
-                    chat_id=update.chat.id,
-                    text=Translation.NO_VOID_FORMAT_FOUND.format("این ویدئو نیاز به نام کاربری و رمز عبور دارد.") + Translation.SET_CUSTOM_USERNAME_PASSWORD,
-                    reply_to_message_id=update.id,
-                    parse_mode=ParseMode.HTML
-                )
+                error_message = Translation.NO_VOID_FORMAT_FOUND.format("این ویدئو نیاز به نام کاربری و رمز عبور دارد.") + Translation.SET_CUSTOM_USERNAME_PASSWORD
             elif "ERROR: unable to download video data" in e_response:
-                await bot.send_message(
-                    chat_id=update.chat.id,
-                    text="❌ خطا در دانلود اطلاعات ویدئو. این لینک ممکن است نیاز به احراز هویت یا کوکی داشته باشد.",
-                    reply_to_message_id=update.id,
-                    parse_mode=ParseMode.HTML
-                )
+                error_message = "❌ خطا در دانلود اطلاعات ویدئو. این لینک ممکن است نیاز به احراز هویت یا کوکی داشته باشد."
             elif "ERROR: unsupported URL" in e_response:
-                await bot.send_message(
-                    chat_id=update.chat.id,
-                    text="❌ لینک پشتیبانی نمی‌شود. لطفاً لینک دیگری امتحان کنید.",
-                    reply_to_message_id=update.id,
-                    parse_mode=ParseMode.HTML
-                )
-            else:
-                await bot.send_message(
-                    chat_id=update.chat.id,
-                    text=f"❌ خطا در پردازش لینک: {e_response[:100]}...",
-                    reply_to_message_id=update.id,
-                    parse_mode=ParseMode.HTML
-                )
+                error_message = "❌ لینک پشتیبانی نمی‌شود. لطفاً لینک دیگری امتحان کنید."
+            await bot.send_message(
+                chat_id=update.chat.id,
+                text=f"❌ خطا در پردازش لینک: {error_message}",
+                reply_to_message_id=update.id,
+                parse_mode=ParseMode.HTML
+            )
             return
 
         if not t_response:
@@ -200,13 +165,24 @@ async def echo(bot, update):
 
         # تجزیه JSON
         try:
-            response_json = json.loads(t_response.split("\n")[0] if "\n" in t_response else t_response)
+            # بررسی چندخطی بودن خروجی
+            lines = t_response.split("\n")
+            response_json = None
+            for line in lines:
+                if line.strip():  # فقط خطوط غیرخالی
+                    try:
+                        response_json = json.loads(line)
+                        break
+                    except json.JSONDecodeError:
+                        continue
+            if not response_json:
+                raise json.JSONDecodeError("No valid JSON found in output", t_response, 0)
         except json.JSONDecodeError as e:
-            logger.error(f"JSON decode error: {e}")
+            logger.error(f"JSON decode error: {e}, raw output: {t_response}")
             await chk.delete()
             await bot.send_message(
                 chat_id=update.chat.id,
-                text=f"❌ خطا در تجزیه اطلاعات ویدئو: {str(e)[:100]}...",
+                text=f"❌ خطا در تجزیه اطلاعات ویدئو: {str(e)} | خروجی خام: {t_response[:100]}...",
                 reply_to_message_id=update.id,
                 parse_mode=ParseMode.HTML
             )
@@ -234,7 +210,8 @@ async def echo(bot, update):
         inline_keyboard = []
         duration = response_json.get("duration")
 
-        if "formats" in response_json:
+        # بررسی وجود formats یا اطلاعات پایه
+        if "formats" in response_json and response_json["formats"]:
             for fmt in response_json["formats"]:
                 format_id = fmt.get("format_id")
                 format_string = fmt.get("format_note", fmt.get("format", "N/A"))
@@ -268,13 +245,24 @@ async def echo(bot, update):
                     [InlineKeyboardButton("× لغو ×", callback_data="close")]
                 ])
         else:
+            # در صورت عدم وجود formats، از اطلاعات پایه استفاده کن
             format_id = response_json.get("format_id")
             format_ext = response_json.get("ext")
-            cb_string_video = f"video|{format_id}|{format_ext}|{randem}"
-            inline_keyboard.append([
-                InlineKeyboardButton("🎬 ویدئو", callback_data=cb_string_video.encode("UTF-8"))
-            ])
-            inline_keyboard.append([InlineKeyboardButton("× لغو ×", callback_data="close")])
+            if format_id and format_ext:
+                cb_string_video = f"video|{format_id}|{format_ext}|{randem}"
+                inline_keyboard.append([
+                    InlineKeyboardButton("🎬 ویدئو", callback_data=cb_string_video.encode("UTF-8"))
+                ])
+                inline_keyboard.append([InlineKeyboardButton("× لغو ×", callback_data="close")])
+            else:
+                await chk.delete()
+                await bot.send_message(
+                    chat_id=update.chat.id,
+                    text="❌ هیچ فرمتی برای ویدئو یافت نشد! لطفاً لینک را بررسی کنید.",
+                    reply_to_message_id=update.id,
+                    parse_mode=ParseMode.HTML
+                )
+                return
 
         await chk.delete()
         await bot.send_message(
@@ -291,6 +279,15 @@ async def echo(bot, update):
         await bot.send_message(
             chat_id=update.chat.id,
             text=f"❌ خطای دسترسی به فایل: {str(e)[:100]}...",
+            reply_to_message_id=update.id,
+            parse_mode=ParseMode.HTML
+        )
+    except asyncio.TimeoutError:
+        logger.error("yt-dlp process timed out")
+        await chk.delete()
+        await bot.send_message(
+            chat_id=update.chat.id,
+            text="❌ زمان پردازش لینک به اتمام رسید! لطفاً دوباره تلاش کنید یا لینک دیگری امتحان کنید.",
             reply_to_message_id=update.id,
             parse_mode=ParseMode.HTML
         )
