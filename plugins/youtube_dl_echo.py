@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # (c) Shrimadhav U K | @Tellybots 
@@ -107,6 +108,12 @@ async def echo(bot, update):
         command_to_exec.extend(["--username", youtube_dl_username])
     if youtube_dl_password:
         command_to_exec.extend(["--password", youtube_dl_password])
+    if "instagram.com" in url or "rumble.com" in url:
+        cookies_path = "/app/cookies.txt"
+        if os.path.exists(cookies_path):
+            command_to_exec.extend(["--cookies", cookies_path])
+        else:
+            logger.warning(f"Cookies file not found: {cookies_path}")
 
     logger.info(f"Executing command: {' '.join(command_to_exec)}")
 
@@ -136,7 +143,7 @@ async def echo(bot, update):
         if e_response:
             logger.error(f"yt-dlp error: {e_response}")
             await chk.delete()
-            error_message = e_response[:200]
+            error_message = e_response[:500]
             if "nonnumeric port" in e_response:
                 error_message = "❌ خطای پراکسی (پورت غیرعددی). لطفاً تنظیمات پراکسی را بررسی کنید."
             elif "This video is only available for registered users" in e_response:
@@ -165,7 +172,6 @@ async def echo(bot, update):
 
         # تجزیه JSON
         try:
-            # بررسی چندخطی بودن خروجی
             lines = t_response.split("\n")
             response_json = None
             for line in lines:
@@ -193,6 +199,7 @@ async def echo(bot, update):
         save_ytdl_json_path = os.path.join(Config.DOWNLOAD_LOCATION, f"{update.from_user.id}_{randem}.json")
         try:
             os.makedirs(Config.DOWNLOAD_LOCATION, exist_ok=True)
+            response_json["original_url"] = url  # اضافه کردن لینک اصلی
             with open(save_ytdl_json_path, "w", encoding="utf8") as outfile:
                 json.dump(response_json, outfile, ensure_ascii=False)
         except Exception as e:
@@ -210,7 +217,6 @@ async def echo(bot, update):
         inline_keyboard = []
         duration = response_json.get("duration")
 
-        # بررسی وجود formats یا اطلاعات پایه
         if "formats" in response_json and response_json["formats"]:
             for fmt in response_json["formats"]:
                 format_id = fmt.get("format_id")
@@ -245,7 +251,6 @@ async def echo(bot, update):
                     [InlineKeyboardButton("× لغو ×", callback_data="close")]
                 ])
         else:
-            # در صورت عدم وجود formats، از اطلاعات پایه استفاده کن
             format_id = response_json.get("format_id")
             format_ext = response_json.get("ext")
             if format_id and format_ext:
