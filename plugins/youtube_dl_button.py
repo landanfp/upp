@@ -1,3 +1,4 @@
+```python
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # (c) Shrimadhav U K | @Tellybots
@@ -9,7 +10,7 @@ import os
 import shutil
 from datetime import datetime
 from pyrogram import Client
-from pyrogram.enums import ParseMode  # اضافه‌شده: برای ParseMode
+from pyrogram.enums import ParseMode
 from pyrogram.types import InputMediaPhoto
 from functions.help_Nekmo_ffmpeg import generate_screen_shots
 from plugins.config import Config
@@ -17,8 +18,8 @@ from plugins.translation import Translation
 from plugins.custom_thumbnail import Gthumb01, Gthumb02, Mdata01, Mdata02, Mdata03
 from functions.display_progress import progress_for_pyrogram, humanbytes
 from plugins.database.database import db
-from PIL import Image
 from functions.ran_text import random_char
+import time
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -36,25 +37,51 @@ async def youtube_dl_call_back(bot, update):
     save_ytdl_json_path = os.path.join(Config.DOWNLOAD_LOCATION, f"{update.from_user.id}_{ranom}.json")
     thumbnail = os.path.join(Config.DOWNLOAD_LOCATION, f"{update.from_user.id}_{ranom}.jpg")
     
-    try:
-        with open(save_ytdl_json_path, "r", encoding="utf8") as f:
-            response_json = json.load(f)
-    except FileNotFoundError as e:
-        logger.error(f"JSON file not found: {e}")
-        await bot.delete_messages(
+    # بررسی وجود فایل JSON
+    if not os.path.exists(save_ytdl_json_path):
+        logger.error(f"JSON file not found: {save_ytdl_json_path}")
+        await bot.edit_message_text(
             chat_id=update.message.chat.id,
-            message_ids=update.message.id,  # تغییر: message_id به id
-            revoke=True
+            message_id=update.message.id,
+            text="❌ فایل JSON یافت نشد! لطفاً دوباره لینک را ارسال کنید.",
+            parse_mode=ParseMode.HTML
         )
         return False
 
-    youtube_dl_url = update.message.reply_to_message.text
-    custom_file_name = f"{response_json.get('title')}_{youtube_dl_format}.{youtube_dl_ext}"
+    # خواندن فایل JSON
+    try:
+        with open(save_ytdl_json_path, "r", encoding="utf8") as f:
+            response_json = json.load(f)
+    except Exception as e:
+        logger.error(f"Error reading JSON file: {e}")
+        await bot.edit_message_text(
+            chat_id=update.message.chat.id,
+            message_id=update.message.id,
+            text=f"❌ خطا در خواندن فایل JSON: {str(e)[:200]}",
+            parse_mode=ParseMode.HTML
+        )
+        return False
+
+    # گرفتن لینک از JSON
+    youtube_dl_url = response_json.get("original_url") or response_json.get("webpage_url")
+    if not youtube_dl_url:
+        logger.error("No valid URL found in JSON")
+        await bot.edit_message_text(
+            chat_id=update.message.chat.id,
+            message_id=update.message.id,
+            text="❌ لینک ویدئو در فایل JSON یافت نشد!",
+            parse_mode=ParseMode.HTML
+        )
+        return False
+
+    # تنظیم نام فایل
+    custom_file_name = f"{response_json.get('title', 'video')}_{youtube_dl_format}.{youtube_dl_ext}"
     youtube_dl_username = None
     youtube_dl_password = None
 
-    if "|" in youtube_dl_url:
-        url_parts = youtube_dl_url.split("|")
+    # پردازش URL برای استخراج نام کاربری و رمز عبور
+    if "|" in update.message.reply_to_message.text:
+        url_parts = update.message.reply_to_message.text.split("|")
         if len(url_parts) == 2:
             youtube_dl_url, custom_file_name = url_parts
         elif len(url_parts) == 4:
@@ -71,11 +98,11 @@ async def youtube_dl_call_back(bot, update):
         youtube_dl_username = youtube_dl_username.strip() if youtube_dl_username else None
         youtube_dl_password = youtube_dl_password.strip() if youtube_dl_password else None
         logger.info(f"URL: {youtube_dl_url}, File name: {custom_file_name}")
-    
+
     await bot.edit_message_text(
         text=Translation.DOWNLOAD_START,
         chat_id=update.message.chat.id,
-        message_id=update.message.id  # تغییر: message_id به id
+        message_id=update.message.id
     )
     
     description = Translation.CUSTOM_CAPTION_UL_FILE
@@ -112,11 +139,15 @@ async def youtube_dl_call_back(bot, update):
             "--hls-prefer-ffmpeg",
             youtube_dl_url,
             "-o", download_directory,
-            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"  # اضافه‌شده: User-Agent
+            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         ]
         # پشتیبانی از کوکی‌ها برای Rumble و Instagram
         if "instagram.com" in youtube_dl_url or "rumble.com" in youtube_dl_url:
-            command_to_exec.extend(["--cookies", "/app/cookies.txt"])  # تنظیم مسیر کوکی‌ها
+            cookies_path = "/app/cookies.txt"
+            if os.path.exists(cookies_path):
+                command_to_exec.extend(["--cookies", cookies_path])
+            else:
+                logger.warning(f"Cookies file not found: {cookies_path}")
 
     if Config.HTTP_PROXY:
         command_to_exec.extend(["--proxy", Config.HTTP_PROXY])
@@ -124,9 +155,8 @@ async def youtube_dl_call_back(bot, update):
         command_to_exec.extend(["--username", youtube_dl_username])
     if youtube_dl_password:
         command_to_exec.extend(["--password", youtube_dl_password])
-    command_to_exec.append("--no-warnings")
 
-    logger.info(f"Executing command: {command_to_exec}")
+    logger.info(f"Executing command: {' '.join(command_to_exec)}")
     
     start = datetime.now()
     try:
@@ -135,7 +165,7 @@ async def youtube_dl_call_back(bot, update):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        stdout, stderr = await process.communicate(timeout=60)  # اضافه‌شده: محدودیت زمانی
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=300.0)  # افزایش تایم‌اوت
         e_response = stderr.decode().strip()
         t_response = stdout.decode().strip()
         logger.info(f"yt-dlp stdout: {t_response}")
@@ -146,16 +176,16 @@ async def youtube_dl_call_back(bot, update):
             error_message = e_response.replace(ad_string_to_replace, "")
             await bot.edit_message_text(
                 chat_id=update.message.chat.id,
-                message_id=update.message.id,  # تغییر: message_id به id
-                text=f"❌ خطا در دانلود: {error_message[:100]}...",
-                parse_mode=ParseMode.HTML  # تغییر: استفاده از ParseMode.HTML
+                message_id=update.message.id,
+                text=f"❌ خطا در دانلود: {error_message[:500]}",  # افزایش طول پیام خطا
+                parse_mode=ParseMode.HTML
             )
             return False
 
         if not os.path.exists(download_directory):
             await bot.edit_message_text(
                 chat_id=update.message.chat.id,
-                message_id=update.message.id,  # تغییر: message_id به id
+                message_id=update.message.id,
                 text="❌ فایل دانلود نشد! لطفاً لینک را بررسی کنید.",
                 parse_mode=ParseMode.HTML
             )
@@ -169,7 +199,7 @@ async def youtube_dl_call_back(bot, update):
             await bot.edit_message_text(
                 chat_id=update.message.chat.id,
                 text=Translation.RCHD_TG_API_LIMIT.format(time_taken_for_download, humanbytes(file_size)),
-                message_id=update.message.id,  # تغییر: message_id به id
+                message_id=update.message.id,
                 parse_mode=ParseMode.HTML
             )
             return False
@@ -198,7 +228,7 @@ async def youtube_dl_call_back(bot, update):
         await bot.edit_message_text(
             text=Translation.UPLOAD_START,
             chat_id=update.message.chat.id,
-            message_id=update.message.id  # تغییر: message_id به id
+            message_id=update.message.id
         )
 
         start_time = time.time()
@@ -209,10 +239,10 @@ async def youtube_dl_call_back(bot, update):
                 document=download_directory,
                 thumb=thumbnail_path,
                 caption=description,
-                reply_to_message_id=update.message.reply_to_message.id,  # تغییر: message_id به id
+                reply_to_message_id=update.message.reply_to_message.id,
                 progress=progress_for_pyrogram,
                 progress_args=(Translation.UPLOAD_START, update.message, start_time),
-                parse_mode=ParseMode.HTML  # تغییر: ParseMode.HTML
+                parse_mode=ParseMode.HTML
             )
         elif tg_send_type == "audio":
             duration = await Mdata03(download_directory)
@@ -222,7 +252,7 @@ async def youtube_dl_call_back(bot, update):
                 caption=description,
                 duration=duration,
                 thumb=thumbnail_path,
-                reply_to_message_id=update.message.reply_to_message.id,  # تغییر: message_id به id
+                reply_to_message_id=update.message.reply_to_message.id,
                 progress=progress_for_pyrogram,
                 progress_args=(Translation.UPLOAD_START, update.message, start_time),
                 parse_mode=ParseMode.HTML
@@ -235,7 +265,7 @@ async def youtube_dl_call_back(bot, update):
                 duration=duration,
                 length=width,
                 thumb=thumbnail_path,
-                reply_to_message_id=update.message.reply_to_message.id,  # تغییر: message_id به id
+                reply_to_message_id=update.message.reply_to_message.id,
                 progress=progress_for_pyrogram,
                 progress_args=(Translation.UPLOAD_START, update.message, start_time)
             )
@@ -250,7 +280,7 @@ async def youtube_dl_call_back(bot, update):
                 height=height,
                 supports_streaming=True,
                 thumb=thumbnail_path,
-                reply_to_message_id=update.message.reply_to_message.id,  # تغییر: message_id به id
+                reply_to_message_id=update.message.reply_to_message.id,
                 progress=progress_for_pyrogram,
                 progress_args=(Translation.UPLOAD_START, update.message, start_time),
                 parse_mode=ParseMode.HTML
@@ -265,14 +295,14 @@ async def youtube_dl_call_back(bot, update):
                         InputMediaPhoto(
                             media=image,
                             caption=description if i == 0 else "",
-                            parse_mode=ParseMode.HTML  # تغییر: ParseMode.HTML
+                            parse_mode=ParseMode.HTML
                         )
                     )
             if media_album_p:
                 await bot.send_media_group(
                     chat_id=update.message.chat.id,
                     disable_notification=True,
-                    reply_to_message_id=update.message.id,  # تغییر: message_id به id
+                    reply_to_message_id=update.message.id,
                     media=media_album_p
                 )
 
@@ -282,34 +312,39 @@ async def youtube_dl_call_back(bot, update):
         # پاکسازی فایل‌ها
         try:
             shutil.rmtree(tmp_directory_for_each_user, ignore_errors=True)
-            os.remove(download_directory)
+            if os.path.exists(download_directory):
+                os.remove(download_directory)
             if thumbnail_path and os.path.exists(thumbnail_path):
                 os.remove(thumbnail_path)
-            os.remove(save_ytdl_json_path)
+            if os.path.exists(save_ytdl_json_path):
+                os.remove(save_ytdl_json_path)
         except Exception as e:
             logger.error(f"Error cleaning up files: {e}")
 
         await bot.edit_message_text(
             text=Translation.AFTER_SUCCESSFUL_UPLOAD_MSG_WITH_TS.format(time_taken_for_download, time_taken_for_upload),
             chat_id=update.message.chat.id,
-            message_id=update.message.id,  # تغییر: message_id به id
+            message_id=update.message.id,
             disable_web_page_preview=True,
-            parse_mode=ParseMode.HTML  # تغییر: ParseMode.HTML
+            parse_mode=ParseMode.HTML
         )
 
     except asyncio.TimeoutError:
         logger.error("yt-dlp timed out")
         await bot.edit_message_text(
             chat_id=update.message.chat.id,
-            message_id=update.message.id,  # تغییر: message_id به id
+            message_id=update.message.id,
             text="❌ زمان دانلود به اتمام رسید! لطفاً دوباره تلاش کنید.",
             parse_mode=ParseMode.HTML
         )
+        return False
     except Exception as e:
         logger.error(f"Error in youtube_dl_call_back: {e}")
         await bot.edit_message_text(
             chat_id=update.message.chat.id,
-            message_id=update.message.id,  # تغییر: message_id به id
-            text="⚠️ خطایی در دانلود یا آپلود رخ داد. لطفاً دوباره تلاش کنید.",
+            message_id=update.message.id,
+            text=f"⚠️ خطایی در دانلود یا آپلود رخ داد: {str(e)[:500]}",
             parse_mode=ParseMode.HTML
         )
+        return False
+```
